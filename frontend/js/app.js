@@ -1,4 +1,5 @@
 import { recordService } from "./data.js";
+import { API_BASE_URL } from "./config.js";
 
 // ---------- Element references ----------
 const form = document.getElementById("record-form");
@@ -20,9 +21,15 @@ const viewPanel = document.getElementById("view-panel");
 const viewDetails = document.getElementById("view-details");
 const closeView = document.getElementById("close-view");
 const themeToggle = document.getElementById("theme-toggle");
+const apiGuideLink = document.getElementById("api-guide-link");
+const healthLink = document.getElementById("health-link");
 
 const STATUSES = ["Pending", "In progress", "Completed"];
 let records = [];
+
+const apiBaseUrl = API_BASE_URL.replace(/\/+$/, "");
+apiGuideLink.href = `${apiBaseUrl}/`;
+healthLink.href = `${apiBaseUrl}/health`;
 
 // ---------- Moving star field ----------
 const starCanvas = document.getElementById("star-field");
@@ -32,8 +39,8 @@ let stars = [];
 function createStars() {
   const count = Math.min(180, Math.floor((window.innerWidth * window.innerHeight) / 9000));
   stars = Array.from({ length: count }, () => ({
-    x: Math.random() * starCanvas.width,
-    y: Math.random() * starCanvas.height,
+    x: Math.random() * window.innerWidth,
+    y: Math.random() * window.innerHeight,
     radius: Math.random() * 2.8 + 1.2,
     speed: Math.random() * 0.4 + 0.12,
     drift: (Math.random() - 0.5) * 0.18,
@@ -75,7 +82,9 @@ function animateStars() {
 
 resizeStarField();
 window.addEventListener("resize", resizeStarField);
-animateStars();
+if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  animateStars();
+}
 
 // ---------- Messages ----------
 function showMessage(text, type) {
