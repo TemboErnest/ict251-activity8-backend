@@ -1,11 +1,18 @@
 const express = require("express");
 const cors = require("cors");
 const { DatabaseSync } = require("node:sqlite");
+const { Pool } = require("pg");
 const path = require("path");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, "records.db");
+const pool = process.env.DATABASE_URL
+  ? new Pool({ connectionString: process.env.DATABASE_URL })
+  : null;
+if (pool) {
+  pool.on("error", (err) => console.error("Unexpected PostgreSQL pool error:", err));
+}
 
 const STATUSES = ["Pending", "In progress", "Completed"];
 
@@ -40,29 +47,100 @@ app.use(express.json({ limit: "100kb" }));
 app.use(express.static(path.join(__dirname, "..", "frontend")));
 
 // ---------- DATABASE ----------
-const db = new DatabaseSync(DB_PATH);
-db.exec(`
-  CREATE TABLE IF NOT EXISTS records (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT NOT NULL,
-    category TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'Pending'
-      CHECK (status IN ('Pending','In progress','Completed'))
-  )
-`);
+let db;
+let q;
 
-const q = {
-  all: db.prepare("SELECT * FROM records ORDER BY id DESC"),
-  one: db.prepare("SELECT * FROM records WHERE id = ?"),
-  insert: db.prepare(
-    "INSERT INTO records (title, category, description, status) VALUES (?, ?, ?, ?)"
-  ),
-  update: db.prepare(
-    "UPDATE records SET title = ?, category = ?, description = ?, status = ? WHERE id = ?"
-  ),
-  remove: db.prepare("DELETE FROM records WHERE id = ?"),
-};
+if (!pool) {
+  db = new DatabaseSync(DB_PATH);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      category TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'Pending'
+        CHECK (status IN ('Pending','In progress','Completed'))
+    )
+  `);
+  q = {
+    all: db.prepare("SELECT * FROM records ORDER BY id DESC"),
+    one: db.prepare("SELECT * FROM records WHERE id = ?"),
+    insert: db.prepare(
+      "INSERT INTO records (title, category, description, status) VALUES (?, ?, ?, ?)"
+    ),
+    update: db.prepare(
+      "UPDATE records SET title = ?, category = ?, description = ?, status = ? WHERE id = ?"
+    ),
+    remove: db.prepare("DELETE FROM records WHERE id = ?"),
+  };
+}
+
+async function initializePostgres() {
+  if (!pool) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS records (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      category TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'Pending'
+        CHECK (status IN ('Pending','In progress','Completed'))
+    )
+  `);
+}
+
+async function listRecords() {
+  if (pool) {
+    const result = await pool.query("SELECT * FROM records ORDER BY id DESC");
+    return result.rows;
+  }
+  return q.all.all();
+}
+
+async function getRecord(id) {
+  if (pool) {
+    const result = await pool.query("SELECT * FROM records WHERE id = $1", [id]);
+    return result.rows[0] || null;
+  }
+  return q.one.get(id) || null;
+}
+
+async function createRecord(record) {
+  if (pool) {
+    const result = await pool.query(
+      "INSERT INTO records (title, category, description, status) VALUES ($1, $2, $3, $4) RETURNING *",
+      [record.title, record.category, record.description, record.status]
+    );
+    return result.rows[0];
+  }
+  const info = q.insert.run(
+    record.title,
+    record.category,
+    record.description,
+    record.status
+  );
+  return q.one.get(info.lastInsertRowid);
+}
+
+async function updateRecord(id, record) {
+  if (pool) {
+    const result = await pool.query(
+      "UPDATE records SET title = $1, category = $2, description = $3, status = $4 WHERE id = $5 RETURNING *",
+      [record.title, record.category, record.description, record.status, id]
+    );
+    return result.rows[0] || null;
+  }
+  q.update.run(record.title, record.category, record.description, record.status, id);
+  return q.one.get(id) || null;
+}
+
+async function deleteRecord(id) {
+  if (pool) {
+    const result = await pool.query("DELETE FROM records WHERE id = $1", [id]);
+    return result.rowCount > 0;
+  }
+  return q.remove.run(id).changes > 0;
+}
 
 // ---------- VALIDATION ----------
 function validate(body) {
@@ -97,6 +175,12 @@ function parseId(req, res) {
   return id;
 }
 
+function asyncRoute(handler) {
+  return (req, res, next) => {
+    Promise.resolve(handler(req, res, next)).catch(next);
+  };
+}
+
 // ---------- ROUTES ----------
 app.get("/api", (req, res) => {
   res.json({
@@ -114,57 +198,56 @@ app.get("/api", (req, res) => {
   });
 });
 
-app.get("/health", (req, res) => {
+app.get("/health", asyncRoute(async (req, res) => {
   try {
-    const row = db.prepare("SELECT COUNT(*) AS total FROM records").get();
-    res.json({ status: "ok", database: "connected", records: row.total });
+    const records = await listRecords();
+    res.json({
+      status: "ok",
+      database: "connected",
+      records: records.length,
+    });
   } catch (err) {
+    console.error("Health check failed:", err);
     res.status(500).json({ status: "error", database: "disconnected" });
   }
-});
+}));
 
-app.get("/api/records", (req, res) => {
-  res.json(q.all.all());
-});
+app.get("/api/records", asyncRoute(async (req, res) => {
+  res.json(await listRecords());
+}));
 
-app.get("/api/records/:id", (req, res) => {
+app.get("/api/records/:id", asyncRoute(async (req, res) => {
   const id = parseId(req, res);
   if (id === null) return;
-  const record = q.one.get(id);
+  const record = await getRecord(id);
   if (!record) return res.status(404).json({ message: "Record not found." });
   res.json(record);
-});
+}));
 
-app.post("/api/records", (req, res) => {
+app.post("/api/records", asyncRoute(async (req, res) => {
   const { errors, value } = validate(req.body);
   if (errors.length) return res.status(400).json({ message: errors.join(" ") });
-  const info = q.insert.run(
-    value.title,
-    value.category,
-    value.description,
-    value.status
-  );
-  res.status(201).json(q.one.get(info.lastInsertRowid));
-});
+  res.status(201).json(await createRecord(value));
+}));
 
-app.put("/api/records/:id", (req, res) => {
+app.put("/api/records/:id", asyncRoute(async (req, res) => {
   const id = parseId(req, res);
   if (id === null) return;
-  if (!q.one.get(id)) return res.status(404).json({ message: "Record not found." });
+  if (!await getRecord(id)) return res.status(404).json({ message: "Record not found." });
   const { errors, value } = validate(req.body);
   if (errors.length) return res.status(400).json({ message: errors.join(" ") });
-  q.update.run(value.title, value.category, value.description, value.status, id);
-  res.json(q.one.get(id));
-});
+  const record = await updateRecord(id, value);
+  if (!record) return res.status(404).json({ message: "Record not found." });
+  res.json(record);
+}));
 
-app.delete("/api/records/:id", (req, res) => {
+app.delete("/api/records/:id", asyncRoute(async (req, res) => {
   const id = parseId(req, res);
   if (id === null) return;
-  const info = q.remove.run(id);
-  if (info.changes === 0)
+  if (!await deleteRecord(id))
     return res.status(404).json({ message: "Record not found." });
   res.json({ message: "Record deleted successfully." });
-});
+}));
 
 // ---------- ERROR HANDLING (always JSON) ----------
 app.use((req, res) => {
@@ -179,7 +262,16 @@ app.use((err, req, res, next) => {
   res.status(500).json({ message: "Internal server error." });
 });
 
-app.listen(PORT, () => {
-  console.log(`API running on port ${PORT}`);
-  console.log("Allowed origins:", allowedOrigins.join(", "));
+async function start() {
+  await initializePostgres();
+  app.listen(PORT, () => {
+    console.log(`API running on port ${PORT}`);
+    console.log(`Database: ${pool ? "PostgreSQL" : "SQLite"}`);
+    console.log("Allowed origins:", allowedOrigins.join(", "));
+  });
+}
+
+start().catch((err) => {
+  console.error("Database initialization failed:", err);
+  process.exit(1);
 });

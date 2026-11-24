@@ -6,8 +6,10 @@ The repository includes a Render Blueprint (`render.yaml`) for one web service
 that serves both the frontend and API. In Render, create a Blueprint Instance
 from this GitHub repository and deploy the `ict251-records-manager` service.
 After deployment, use the public `onrender.com` service URL as the app link.
-The free service uses temporary SQLite storage, so database contents may reset
-when the service restarts or redeploys.
+To keep records between restarts, create a hosted PostgreSQL database (for
+example, on Neon) and set its connection string as `DATABASE_URL` in the
+Render service environment. Keep the connection string private. Without
+`DATABASE_URL`, the app uses local SQLite, which is temporary on Render.
 
 This one file holds everything: the **backend** (Node.js + Express + SQLite), the **frontend** (HTML, CSS, browser JavaScript) and the **deployment steps**.
 The assignment says to keep HTML, CSS, browser JS and Node.js in separate files and folders, so each block below says which file to create. Copy each block into its own file using this structure:
