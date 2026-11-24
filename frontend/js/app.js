@@ -34,7 +34,7 @@ const STATUSES = ["Pending", "In progress", "Completed"];
 let records = [];
 
 const apiBaseUrl = API_BASE_URL.replace(/\/+$/, "");
-apiGuideLink.href = `${apiBaseUrl}/`;
+apiGuideLink.href = `${apiBaseUrl}/api`;
 healthLink.href = `${apiBaseUrl}/health`;
 
 // ---------- Moving star field ----------

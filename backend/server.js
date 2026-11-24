@@ -37,6 +37,7 @@ app.use(
   })
 );
 app.use(express.json({ limit: "100kb" }));
+app.use(express.static(path.join(__dirname, "..", "frontend")));
 
 // ---------- DATABASE ----------
 const db = new DatabaseSync(DB_PATH);
@@ -97,7 +98,7 @@ function parseId(req, res) {
 }
 
 // ---------- ROUTES ----------
-app.get("/", (req, res) => {
+app.get("/api", (req, res) => {
   res.json({
     name: "ICT251 Records API",
     endpoints: {

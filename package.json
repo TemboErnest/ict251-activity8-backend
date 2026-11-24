@@ -1,0 +1,11 @@
+{
+  "name": "ict251-activity8",
+  "private": true,
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "build": "npm install --prefix backend",
+    "start": "node backend/server.js"
+  }
+}
