@@ -1,3 +1,9 @@
+if (window.location.hostname === "127.0.0.1") {
+  const localUrl = new URL(window.location.href);
+  localUrl.hostname = "localhost";
+  window.location.replace(localUrl.href);
+}
+
 import { recordService } from "./data.js";
 import { API_BASE_URL } from "./config.js";
 
