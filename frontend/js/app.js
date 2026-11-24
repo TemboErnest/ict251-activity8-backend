@@ -24,6 +24,59 @@ const themeToggle = document.getElementById("theme-toggle");
 const STATUSES = ["Pending", "In progress", "Completed"];
 let records = [];
 
+// ---------- Moving star field ----------
+const starCanvas = document.getElementById("star-field");
+const starContext = starCanvas.getContext("2d");
+let stars = [];
+
+function createStars() {
+  const count = Math.min(180, Math.floor((window.innerWidth * window.innerHeight) / 9000));
+  stars = Array.from({ length: count }, () => ({
+    x: Math.random() * starCanvas.width,
+    y: Math.random() * starCanvas.height,
+    radius: Math.random() * 2.8 + 1.2,
+    speed: Math.random() * 0.4 + 0.12,
+    drift: (Math.random() - 0.5) * 0.18,
+    alpha: Math.random() * 0.7 + 0.3,
+  }));
+}
+
+function resizeStarField() {
+  const ratio = window.devicePixelRatio || 1;
+  starCanvas.width = Math.floor(window.innerWidth * ratio);
+  starCanvas.height = Math.floor(window.innerHeight * ratio);
+  starCanvas.style.width = window.innerWidth + "px";
+  starCanvas.style.height = window.innerHeight + "px";
+  starContext.setTransform(ratio, 0, 0, ratio, 0, 0);
+  createStars();
+}
+
+function animateStars() {
+  starContext.clearRect(0, 0, window.innerWidth, window.innerHeight);
+  stars.forEach((star) => {
+    star.y += star.speed;
+    star.x += star.drift;
+    if (star.y > window.innerHeight) {
+      star.y = -2;
+      star.x = Math.random() * window.innerWidth;
+    }
+    if (star.x < 0) star.x = window.innerWidth;
+    if (star.x > window.innerWidth) star.x = 0;
+    starContext.beginPath();
+    starContext.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
+    starContext.fillStyle = `rgba(225, 230, 255, ${star.alpha})`;
+    starContext.shadowBlur = star.radius * 3;
+    starContext.shadowColor = `rgba(190, 200, 255, ${star.alpha})`;
+    starContext.fill();
+  });
+  starContext.shadowBlur = 0;
+  requestAnimationFrame(animateStars);
+}
+
+resizeStarField();
+window.addEventListener("resize", resizeStarField);
+animateStars();
+
 // ---------- Messages ----------
 function showMessage(text, type) {
   messageEl.textContent = text;
@@ -40,9 +93,9 @@ function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", theme);
 }
 try {
-  applyTheme(localStorage.getItem("theme") || "light");
+  applyTheme(localStorage.getItem("theme") || "dark");
 } catch (e) {
-  applyTheme("light");
+  applyTheme("dark");
 }
 themeToggle.addEventListener("click", () => {
   const next =
