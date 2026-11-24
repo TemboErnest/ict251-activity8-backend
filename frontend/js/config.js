@@ -1,1 +1,1 @@
-export const API_BASE_URL = "https://activity7-backend-2vwm.onrender.com";
+export const API_BASE_URL = "http://localhost:3000";
